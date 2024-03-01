@@ -3,6 +3,7 @@ name = "fire-dl"
 version = "0.1.0"
 edition = "2021"
 authors = ["Janosch Gräf <janosch.graef@gmail.com>"]
+license = "MIT"
 
 [dependencies]
 color-eyre = "0.6.2"
