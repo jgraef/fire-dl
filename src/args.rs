@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use regex::Regex;
+use reqwest::Client;
 use structopt::StructOpt;
 use tokio::{
     fs::File,
@@ -12,8 +12,15 @@ use tokio::{
 use url::Url;
 
 use crate::{
-    download::download,
-    scan::scan,
+    download::{
+        download,
+        DownloadArgs,
+    },
+    scan::{
+        scan,
+        ScanArgs,
+    },
+    utils::dedup_urls,
     Error,
     DEFAULT_USER_AGENT,
 };
@@ -29,9 +36,11 @@ pub struct Args {
 
 impl Args {
     pub async fn run(self) -> Result<(), Error> {
+        let globals = self.global_args.build()?;
+
         match self.command {
-            Command::Download(args) => download(self.global_args, args).await?,
-            Command::Scan(args) => scan(self.global_args, args).await?,
+            Command::Download(args) => download(globals, args).await?,
+            Command::Scan(args) => scan(globals, args).await?,
         }
 
         Ok(())
@@ -44,44 +53,22 @@ pub struct GlobalArgs {
     pub user_agent: String,
 }
 
+impl GlobalArgs {
+    fn build(self) -> Result<Globals, Error> {
+        let client = Client::builder().user_agent(self.user_agent).build()?;
+        Ok(Globals { client })
+    }
+}
+
+pub struct Globals {
+    pub client: Client,
+}
+
 #[derive(Debug, StructOpt)]
 pub enum Command {
     #[structopt(alias = "d")]
     Download(DownloadArgs),
     Scan(ScanArgs),
-}
-
-#[derive(Debug, StructOpt)]
-pub struct DownloadArgs {
-    #[structopt(short, long)]
-    pub output: Option<PathBuf>,
-
-    #[structopt(long)]
-    pub redownload_existing: bool,
-
-    #[structopt(short, long, default_value = "1")]
-    pub parallel: usize,
-
-    #[structopt(flatten)]
-    pub urls: Urls,
-}
-
-#[derive(Debug, StructOpt)]
-pub struct ScanArgs {
-    #[structopt(short, long)]
-    pub output: Option<PathBuf>,
-
-    #[structopt(short, long)]
-    pub recursive: bool,
-
-    #[structopt(short, long)]
-    pub no_parent: bool,
-
-    #[structopt(short, long)]
-    pub filter: Regex,
-
-    #[structopt(flatten)]
-    pub urls: Urls,
 }
 
 #[derive(Debug, StructOpt)]
@@ -93,8 +80,8 @@ pub struct Urls {
 }
 
 impl Urls {
-    pub async fn collect(&self) -> Result<Vec<Url>, Error> {
-        let mut urls = self.url.iter().cloned().collect::<Vec<_>>();
+    pub async fn collect(self) -> Result<Vec<Url>, Error> {
+        let mut urls = self.url;
 
         for list in &self.list {
             let file = File::open(list).await?;
@@ -111,6 +98,7 @@ impl Urls {
             }
         }
 
+        let urls = dedup_urls(urls).collect();
         Ok(urls)
     }
 }

@@ -1,8 +1,5 @@
 use std::{
-    collections::{
-        HashMap,
-        HashSet,
-    },
+    collections::HashMap,
     path::{
         Path,
         PathBuf,
@@ -22,6 +19,7 @@ use reqwest::{
     Client,
     Response,
 };
+use structopt::StructOpt;
 use tokio::{
     fs::File,
     io::{
@@ -32,11 +30,26 @@ use tokio::{
 use url::Url;
 
 use crate::args::{
-    DownloadArgs,
-    GlobalArgs,
+    Globals,
+    Urls,
 };
 
-pub async fn download(global: GlobalArgs, args: DownloadArgs) -> Result<(), Error> {
+#[derive(Debug, StructOpt)]
+pub struct DownloadArgs {
+    #[structopt(short, long)]
+    pub output: Option<PathBuf>,
+
+    #[structopt(long)]
+    pub redownload_existing: bool,
+
+    #[structopt(short, long, default_value = "1")]
+    pub parallel: usize,
+
+    #[structopt(flatten)]
+    pub urls: Urls,
+}
+
+pub async fn download(globals: Globals, args: DownloadArgs) -> Result<(), Error> {
     let output = args.output.as_deref().unwrap_or_else(|| Path::new("."));
     if !output.exists() {
         bail!("output path does not exist");
@@ -52,19 +65,8 @@ pub async fn download(global: GlobalArgs, args: DownloadArgs) -> Result<(), Erro
     let mut id = 0;
 
     let mut output_files = HashMap::new();
-    let mut urls_seen = HashSet::new();
-
-    let client = Client::builder().user_agent(global.user_agent).build()?;
 
     for url in urls.into_iter() {
-        // check if we already have a job for that url
-        if urls_seen.contains(&url) {
-            continue;
-        }
-        else {
-            urls_seen.insert(url.clone());
-        }
-
         // todo: handle missing file name
         let mut file_name = file_name_from_url(&url).unwrap().to_owned();
 
@@ -90,7 +92,7 @@ pub async fn download(global: GlobalArgs, args: DownloadArgs) -> Result<(), Erro
         }
 
         let job = Job {
-            client: client.clone(),
+            client: globals.client.clone(),
             id,
             url,
             file_name,
